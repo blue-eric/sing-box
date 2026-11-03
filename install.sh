@@ -71,9 +71,12 @@ is_log_dir=/var/log/$is_core
 is_sh_bin=/usr/local/bin/$is_core
 is_sh_dir=$is_core_dir/sh
 is_sh_repo=blue-eric/$is_core
-is_pkg="wget tar bash"
+# openssl: hysteria2 cert fingerprint & REALITY sni test
+is_pkg="wget tar bash openssl"
 # Alpine: gcompat provides glibc compatibility for prebuilt binaries
 [[ $cmd =~ apk ]] && is_pkg="$is_pkg gcompat jq"
+# Ubuntu / Debian: ufw firewall, logrotate for /var/log/sing-box
+[[ $cmd =~ apt-get ]] && is_pkg="$is_pkg ufw logrotate"
 is_config_json=$is_core_dir/config.json
 tmp_var_lists=(
     tmpcore
@@ -449,8 +452,23 @@ main() {
     # chmod
     chmod +x $is_core_bin $is_sh_bin /usr/bin/jq ${is_sh_bin/$is_core/sb}
 
-    # create log dir
+    # create log dir (755: logrotate refuses world-writable dirs)
     mkdir -p $is_log_dir
+    chmod 755 $is_log_dir
+
+    # log rotate: keep 3 x 10M, copytruncate as sing-box keeps the file open
+    [[ -d /etc/logrotate.d ]] && cat >/etc/logrotate.d/$is_core <<EOF
+$is_log_dir/*.log {
+    size 10M
+    rotate 3
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
+EOF
+    # logrotate ignores config files writable by group/others
+    [[ -f /etc/logrotate.d/$is_core ]] && chmod 644 /etc/logrotate.d/$is_core
 
     # show a tips msg
     msg ok "生成配置文件..."

@@ -84,15 +84,6 @@ change_list=(
     "更改伪装网站"
     "更改用户名 (Username)"
 )
-servername_list=(
-    www.amazon.com
-    www.ebay.com
-    www.paypal.com
-    www.cloudflare.com
-    dash.cloudflare.com
-    aws.amazon.com
-)
-
 # shuf fallback for systems without shuf (e.g., Alpine BusyBox)
 if ! type -P shuf &>/dev/null; then
     shuf() {
@@ -108,7 +99,7 @@ if ! type -P shuf &>/dev/null; then
 fi
 
 is_random_ss_method=${ss_method_list[$(shuf -i 4-6 -n1)]} # random only use ss2022
-is_random_servername=${servername_list[$(shuf -i 0-${#servername_list[@]} -n1) - 1]}
+# REALITY servername: see src/sni.sh (tested on this host, lowest latency wins)
 
 # node name prefix (shown in clients), use short hostname
 is_name_prefix=${HOSTNAME%%.*}
@@ -347,6 +338,9 @@ create() {
         [[ $is_config_file ]] && is_no_del_msg=1 && del $is_config_file
         # save json to file
         cat <<<$is_new_json >$is_json_file
+        # open port in ufw
+        load firewall.sh
+        fw_conf allow $is_json_file
         if [[ $is_new_install ]]; then
             # config.json
             create config.json
@@ -379,7 +373,7 @@ create() {
         manage restart caddy &
         ;;
     config.json)
-        is_log='log:{output:"/var/log/'$is_core'/access.log",level:"info","timestamp":true}'
+        is_log='log:{output:"/var/log/'$is_core'/access.log",level:"warn","timestamp":true}'
         is_dns='dns:{}'
         is_ntp='ntp:{"enabled":true,"server":"time.apple.com"},'
         if [[ -f $is_config_json ]]; then
@@ -616,9 +610,18 @@ change() {
         # new serverName
         is_new_servername=$3
         [[ ! $is_reality ]] && err "($is_config_file) 不支持更改 serverName."
-        [[ $is_auto ]] && is_new_servername=$is_random_servername
-        [[ ! $is_new_servername ]] && ask string is_new_servername "请输入新的 serverName:"
-        is_servername=$is_new_servername
+        load sni.sh
+        if [[ $is_auto ]]; then
+            sni_get
+        else
+            [[ ! $is_new_servername ]] && ask string is_new_servername "请输入新的 serverName:"
+            is_servername=$is_new_servername
+            # test the target on this host, warn if it doesn't fit REALITY
+            if [[ $(type -P openssl) ]] && ! is_sni_err=$(sni_test $is_servername); then
+                warn "($is_servername) 未通过检测: $is_sni_err\n不合格的目标可能导致 REALITY 无法使用."
+                pause
+            fi
+        fi
         [[ $(grep -i "^233boy.com$" <<<$is_servername) ]] && {
             err "你干嘛～哎呦～"
         }
@@ -663,6 +666,9 @@ del() {
             msg "\n是否删除配置文件?: $is_config_file"
             pause
         fi
+        # close port in ufw (read from the file, before delete)
+        load firewall.sh
+        fw_conf delete $is_conf_dir/"$is_config_file"
         rm -rf $is_conf_dir/"$is_config_file"
         [[ ! $is_new_json ]] && manage restart &
         [[ ! $is_no_del_msg ]] && _green "\n已删除: $is_config_file\n"
@@ -697,17 +703,26 @@ uninstall() {
     fi
     manage stop &>/dev/null
     manage disable &>/dev/null
+    # close config ports in ufw; ufw itself and the ssh rule are kept
+    load firewall.sh
+    for v in $(ls $is_conf_dir 2>/dev/null | grep '\.json$'); do
+        fw_conf delete $is_conf_dir/$v
+    done
     rm -rf $is_core_dir $is_log_dir $is_sh_bin ${is_sh_bin/$is_core/sb}
+    rm -f /etc/logrotate.d/$is_core
     if [[ $is_systemd ]]; then
         rm -f /lib/systemd/system/$is_core.service
     elif [[ $is_openrc ]]; then
         rm -f /etc/init.d/$is_core
     fi
-    sed -i "/$is_core/d" /root/.bashrc
+    # only the two aliases added by install.sh
+    sed -i "\#^alias sb=$is_sh_bin\$#d;\#^alias $is_core=$is_sh_bin\$#d" /root/.bashrc
     # uninstall caddy; 2 is ask result
     if [[ $REPLY == '2' ]]; then
         manage stop caddy &>/dev/null
         manage disable caddy &>/dev/null
+        fw_port delete $is_http_port tcp
+        fw_port delete $is_https_port tcp
         if [[ $is_systemd ]]; then
             rm -rf $is_caddy_dir $is_caddy_bin /lib/systemd/system/caddy.service
         elif [[ $is_openrc ]]; then
@@ -1248,7 +1263,7 @@ get() {
             ;;
         *reality*)
             net=reality
-            [[ ! $is_servername ]] && is_servername=$is_random_servername
+            [[ ! $is_servername ]] && load sni.sh && sni_get
             [[ ! $is_private_key ]] && get_pbk
             is_json_add="tls:{enabled:true,server_name:\"$is_servername\",reality:{enabled:true,handshake:{server:\"$is_servername\",server_port:443},private_key:\"$is_private_key\",short_id:[\"\"]}}"
             [[ $is_lower =~ "http" ]] && {
@@ -1309,15 +1324,28 @@ get() {
         load systemd.sh
         install_service caddy &>/dev/null
         is_caddy=1
+        # caddy needs http (acme) & https ports
+        load firewall.sh
+        fw_port allow $is_http_port tcp
+        fw_port allow $is_https_port tcp
         _green "安装 Caddy 成功.\n"
         ;;
     reinstall)
         # keep a copy of the local scripts, uninstall will remove $is_sh_dir
         is_install_sh=$(mktemp -d)
         [[ ! -d $is_install_sh ]] && err "无法创建临时目录."
-        cp -rf $is_sh_dir/* $is_install_sh
+        # download & verify sing-box first, a failed download must not leave it uninstalled
+        is_install_core=$is_install_sh/core.tar.gz
+        link="https://github.com/${is_core_repo}/releases/download/${is_core_pin_ver}/${is_core}-${is_core_pin_ver:1}-linux-${is_arch}.tar.gz"
+        msg "\n下载 $is_core_name $is_core_pin_ver > $link\n"
+        if ! _wget -t 5 -q -c $link -O $is_install_core || ! verify_file $is_core $is_core_pin_ver $is_install_core; then
+            rm -rf $is_install_sh
+            err "下载或校验 $is_core_name 失败, 已取消重装 (未做任何改动)."
+        fi
+        mkdir -p $is_install_sh/sh
+        cp -rf $is_sh_dir/* $is_install_sh/sh
         uninstall
-        cd $is_install_sh && bash install.sh -l
+        cd $is_install_sh/sh && bash install.sh -l -f $is_install_core
         rm -rf $is_install_sh
         ;;
     test-run)
@@ -1756,6 +1784,14 @@ main() {
     ip)
         get_ip
         msg $ip
+        ;;
+    fw | firewall)
+        load firewall.sh
+        fw_sync
+        ;;
+    sni-test)
+        load sni.sh
+        sni_test_show ${@:2}
         ;;
     in | import)
         load import.sh
