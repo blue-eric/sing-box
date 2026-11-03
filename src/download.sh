@@ -1,27 +1,22 @@
-get_latest_version() {
+download() {
+    # only pinned versions (src/versions.sh)
+    latest_ver=$2
     case $1 in
     core)
-        name=$is_core_name
-        url="https://api.github.com/repos/${is_core_repo}/releases/latest?v=$RANDOM"
-        ;;
-    sh)
-        name="$is_core_name 脚本"
-        url="https://api.github.com/repos/$is_sh_repo/releases/latest?v=$RANDOM"
+        [[ ! $latest_ver ]] && latest_ver=$is_core_pin_ver
+        is_pin_name=$is_core
         ;;
     caddy)
-        name="Caddy"
-        url="https://api.github.com/repos/$is_caddy_repo/releases/latest?v=$RANDOM"
+        [[ ! $latest_ver ]] && latest_ver=$is_caddy_pin_ver
+        is_pin_name=caddy
+        ;;
+    *)
+        err "不支持下载: $1"
         ;;
     esac
-    latest_ver=$(_wget -qO- $url | grep tag_name | grep -E -o 'v([0-9.]+)')
-    [[ ! $latest_ver ]] && {
-        err "获取 ${name} 最新版本失败."
+    ! is_pinned $is_pin_name $latest_ver && {
+        err "$is_pin_name $latest_ver 未在 src/versions.sh 中记录指纹, 不允许安装."
     }
-    unset name url
-}
-download() {
-    latest_ver=$2
-    [[ ! $latest_ver ]] && get_latest_version $1
     # tmp dir
     tmpdir=$(mktemp -u)
     [[ ! $tmpdir ]] && {
@@ -36,14 +31,6 @@ download() {
         download_file
         tar zxf $tmpfile --strip-components 1 -C $is_core_dir/bin
         chmod +x $is_core_bin
-        ;;
-    sh)
-        name="$is_core_name 脚本"
-        tmpfile=$tmpdir/sh.tar.gz
-        link="https://github.com/${is_sh_repo}/releases/download/${latest_ver}/code.tar.gz"
-        download_file
-        tar zxf $tmpfile -C $is_sh_dir
-        chmod +x $is_sh_bin ${is_sh_bin/$is_core/sb}
         ;;
     caddy)
         name="Caddy"
@@ -63,5 +50,9 @@ download_file() {
     if ! _wget -t 5 -c $link -O $tmpfile; then
         rm -rf $tmpdir
         err "\n下载 ${name} 失败.\n"
+    fi
+    if ! verify_file $is_pin_name $latest_ver $tmpfile; then
+        rm -rf $tmpdir
+        err "\n${name} 文件指纹校验失败, 已丢弃: ${link}\n"
     fi
 }

@@ -110,6 +110,10 @@ fi
 is_random_ss_method=${ss_method_list[$(shuf -i 4-6 -n1)]} # random only use ss2022
 is_random_servername=${servername_list[$(shuf -i 0-${#servername_list[@]} -n1) - 1]}
 
+# node name prefix (shown in clients), use short hostname
+is_name_prefix=${HOSTNAME%%.*}
+[[ ! $is_name_prefix ]] && is_name_prefix=sb
+
 msg() {
     echo -e "$@"
 }
@@ -272,9 +276,6 @@ ask() {
         read REPLY
         [[ ! $REPLY && $is_emtpy_exit ]] && exit
         [[ ! $REPLY && $is_default_arg ]] && export $is_ask_set=$is_default_arg && break
-        [[ "$REPLY" == "${is_str}2${is_get}3${is_opt}3" && $is_ask_set == 'is_main_pick' ]] && {
-            msg "\n${is_get}2${is_str}3${is_msg}3b${is_tmp}o${is_opt}y\n" && exit
-        }
         if [[ ! $is_tmp_list ]]; then
             [[ $(grep port <<<$is_ask_set) ]] && {
                 [[ ! $(is_test port "$REPLY") ]] && {
@@ -591,13 +592,13 @@ change() {
             fi
             is_tmp_json=$is_conf_dir/$is_config_file-$uuid
             cp -f $is_conf_dir/$is_config_file $is_tmp_json
-            sed -i s#$is_private_key #$is_new_private_key# $is_tmp_json
+            sed -i "s#$is_private_key#$is_new_private_key#" $is_tmp_json
             $is_core_bin check -c $is_tmp_json &>/dev/null
             if [[ $? != 0 ]]; then
                 is_key_err=1
                 is_key_err_msg="Private key 无法通过测试."
             fi
-            sed -i s#$is_new_private_key #$is_new_public_key# $is_tmp_json
+            sed -i "s#$is_new_private_key#$is_new_public_key#" $is_tmp_json
             $is_core_bin check -c $is_tmp_json &>/dev/null
             if [[ $? != 0 ]]; then
                 is_key_err=1
@@ -1223,7 +1224,7 @@ get() {
         socks*)
             net=socks
             is_protocol=$net
-            [[ ! $is_socks_user ]] && is_socks_user=233boy
+            [[ ! $is_socks_user ]] && is_socks_user=${uuid:0:8}
             [[ ! $is_socks_pass ]] && is_socks_pass=$uuid
             json_str="users:[{username: \"$is_socks_user\", password: \"$is_socks_pass\"}]"
             ;;
@@ -1311,9 +1312,13 @@ get() {
         _green "安装 Caddy 成功.\n"
         ;;
     reinstall)
-        is_install_sh=$(cat $is_sh_dir/install.sh)
+        # keep a copy of the local scripts, uninstall will remove $is_sh_dir
+        is_install_sh=$(mktemp -d)
+        [[ ! -d $is_install_sh ]] && err "无法创建临时目录."
+        cp -rf $is_sh_dir/* $is_install_sh
         uninstall
-        bash <<<$is_install_sh
+        cd $is_install_sh && bash install.sh -l
+        rm -rf $is_install_sh
         ;;
     test-run)
         if [[ $is_systemd ]]; then
@@ -1368,7 +1373,7 @@ info() {
             is_can_change=(0 1 2 3 5)
             is_info_show=(0 1 2 3 4 6 7 8)
             [[ $is_protocol == 'vmess' ]] && {
-                is_vmess_url=$(jq -c '{v:2,ps:'\"233boy-$net-$host\"',add:'\"$is_addr\"',port:'\"$is_https_port\"',id:'\"$uuid\"',aid:"0",net:'\"$net\"',host:'\"$host\"',path:'\"$path\"',tls:'\"tls\"'}' <<<{})
+                is_vmess_url=$(jq -c '{v:2,ps:'\"${is_name_prefix}-$net-$host\"',add:'\"$is_addr\"',port:'\"$is_https_port\"',id:'\"$uuid\"',aid:"0",net:'\"$net\"',host:'\"$host\"',path:'\"$path\"',tls:'\"tls\"'}' <<<{})
                 is_url=vmess://$(echo -n $is_vmess_url | base64 -w 0)
             } || {
                 [[ $is_protocol == "trojan" ]] && {
@@ -1377,7 +1382,7 @@ info() {
                     is_can_change=(0 1 2 3 4)
                     is_info_show=(0 1 2 10 4 6 7 8)
                 }
-                is_url="$is_protocol://$uuid@$host:$is_https_port?encryption=none&security=tls&type=$net&host=$host&path=$path#233boy-$net-$host"
+                is_url="$is_protocol://$uuid@$host:$is_https_port?encryption=none&security=tls&type=$net&host=$host&path=$path#${is_name_prefix}-$net-$host"
             }
             [[ $is_caddy ]] && is_can_change+=(11)
             is_info_str=($is_protocol $is_addr $is_https_port $uuid $net $host $path 'tls')
@@ -1399,21 +1404,21 @@ info() {
                 is_info_str+=(tls h3 true)
                 is_quic_add=",tls:\"tls\",alpn:\"h3\"" # cant add allowInsecure
             }
-            is_vmess_url=$(jq -c "{v:2,ps:\"233boy-${net}-$is_addr\",add:\"$is_addr\",port:\"$port\",id:\"$uuid\",aid:\"0\",net:\"$net\",type:\"$is_type\"$is_quic_add}" <<<{})
+            is_vmess_url=$(jq -c "{v:2,ps:\"${is_name_prefix}-${net}-$is_addr\",add:\"$is_addr\",port:\"$port\",id:\"$uuid\",aid:\"0\",net:\"$net\",type:\"$is_type\"$is_quic_add}" <<<{})
             is_url=vmess://$(echo -n $is_vmess_url | base64 -w 0)
         fi
         ;;
     ss)
         is_can_change=(0 1 4 6)
         is_info_show=(0 1 2 10 11)
-        is_url="ss://$(echo -n ${ss_method}:${ss_password} | base64 -w 0)@${is_addr}:${port}#233boy-$net-${is_addr}"
+        is_url="ss://$(echo -n ${ss_method}:${ss_password} | base64 -w 0)@${is_addr}:${port}#${is_name_prefix}-$net-${is_addr}"
         is_info_str=($is_protocol $is_addr $port $ss_password $ss_method)
         ;;
     trojan)
         is_insecure=1
         is_can_change=(0 1 4)
         is_info_show=(0 1 2 10 4 8 20)
-        is_url="$is_protocol://$password@$is_addr:$port?type=tcp&security=tls&insecure=1&allowInsecure=1#233boy-$net-$is_addr"
+        is_url="$is_protocol://$password@$is_addr:$port?type=tcp&security=tls&insecure=1&allowInsecure=1#${is_name_prefix}-$net-$is_addr"
         is_info_str=($is_protocol $is_addr $port $password tcp tls true)
         ;;
     hy*)
@@ -1421,14 +1426,14 @@ info() {
         is_info_show=(0 1 2 10 8 9 20)
         # fix xray core for client use.
         is_sha256=$(openssl x509 -noout -fingerprint -sha256 -in $is_core_dir/bin/tls.cer | sed 's/.*=//;s/://g')
-        is_url="$is_protocol://$password@$is_addr:$port?alpn=h3&insecure=1&allowInsecure=1&pinSHA256=$is_sha256#233boy-$net-$is_addr"
+        is_url="$is_protocol://$password@$is_addr:$port?alpn=h3&insecure=1&allowInsecure=1&pinSHA256=$is_sha256#${is_name_prefix}-$net-$is_addr"
         is_info_str=($is_protocol $is_addr $port $password tls h3 "true (设置, 固定证书>证书指纹(SHA-256): $is_sha256)")
         ;;
     tuic)
         is_insecure=1
         is_can_change=(0 1 4 5)
         is_info_show=(0 1 2 3 10 8 9 20 21)
-        is_url="$is_protocol://$uuid:$password@$is_addr:$port?alpn=h3&insecure=1&allowInsecure=1&congestion_control=bbr#233boy-$net-$is_addr"
+        is_url="$is_protocol://$uuid:$password@$is_addr:$port?alpn=h3&insecure=1&allowInsecure=1&congestion_control=bbr#${is_name_prefix}-$net-$is_addr"
         is_info_str=($is_protocol $is_addr $port $uuid $password tls h3 true bbr)
         ;;
     reality)
@@ -1443,19 +1448,19 @@ info() {
             is_info_show=(${is_info_show[@]/15/})
         }
         is_info_str=($is_protocol $is_addr $port $uuid $is_flow $is_net_type reality $is_servername chrome $is_public_key)
-        is_url="$is_protocol://$uuid@$is_addr:$port?encryption=none&security=reality&flow=$is_flow&type=$is_net_type&sni=$is_servername&pbk=$is_public_key&fp=chrome#233boy-$net-$is_addr"
+        is_url="$is_protocol://$uuid@$is_addr:$port?encryption=none&security=reality&flow=$is_flow&type=$is_net_type&sni=$is_servername&pbk=$is_public_key&fp=chrome#${is_name_prefix}-$net-$is_addr"
         ;;
     anytls)
         is_can_change=(0 1 4)
         if [[ $is_anytls_domain ]]; then
             is_info_show=(0 1 2 10 8)
             is_info_str=($is_protocol $is_anytls_domain $port $password tls)
-            is_url="anytls://$password@$is_anytls_domain:$port#233boy-$net-$is_anytls_domain"
+            is_url="anytls://$password@$is_anytls_domain:$port#${is_name_prefix}-$net-$is_anytls_domain"
         else
             is_insecure=1
             is_info_show=(0 1 2 10 8 20)
             is_info_str=($is_protocol $is_addr $port $password tls true)
-            is_url="anytls://$password@$is_addr:$port?insecure=1&allowInsecure=1#233boy-$net-$is_addr"
+            is_url="anytls://$password@$is_addr:$port?insecure=1&allowInsecure=1#${is_name_prefix}-$net-$is_addr"
         fi
         ;;
     direct)
@@ -1467,7 +1472,7 @@ info() {
         is_can_change=(0 1 12 4)
         is_info_show=(0 1 2 19 10)
         is_info_str=($is_protocol $is_addr $port $is_socks_user $is_socks_pass)
-        is_url="socks://$(echo -n ${is_socks_user}:${is_socks_pass} | base64 -w 0)@${is_addr}:${port}#233boy-$net-${is_addr}"
+        is_url="socks://$(echo -n ${is_socks_user}:${is_socks_pass} | base64 -w 0)@${is_addr}:${port}#${is_name_prefix}-$net-${is_addr}"
         ;;
     esac
     [[ $is_dont_show_info || $is_gen || $is_dont_auto_exit ]] && return # dont show info
@@ -1504,13 +1509,7 @@ info() {
 footer_msg() {
     [[ $is_core_stop && ! $is_new_json ]] && warn "$is_core_name 当前处于停止状态."
     [[ $is_caddy_stop && $host ]] && warn "Caddy 当前处于停止状态."
-    ####### 要点13脸吗只会改我链接的小人 #######
-    unset c n m s b
-    msg "------------- END -------------"
-    msg "关注(tg): $(msg_ul https://t.me/tg2333)"
-    msg "文档(doc): $(msg_ul https://233boy.com/$is_core/$is_core-script/)"
-    msg "推广(ads): 机场推荐($is_core_name services): $(msg_ul https://g${c}e${n}t${m}j${s}m${b}s.com/)\n"
-    ####### 要点13脸吗只会改我链接的小人 #######
+    msg "------------- END -------------\n"
 }
 
 # URL or qrcode
@@ -1523,7 +1522,7 @@ url_qr() {
             msg "\n\e[${is_color}m${is_url}\e[0m\n"
             footer_msg
         } || {
-            link="https://233boy.github.io/tools/qr.html#${is_url}"
+            # local qrencode only, never send the URL to a third-party page
             msg "\n------------- $is_config_name & QR code 二维码 -------------"
             msg
             if [[ $(type -P qrencode) ]]; then
@@ -1532,8 +1531,7 @@ url_qr() {
                 msg "请安装 qrencode: $(_green "$cmd update -y; $cmd install qrencode -y")"
             fi
             msg
-            msg "如果无法正常显示或识别, 请使用下面的链接来生成二维码:"
-            msg "\n\e[4;${is_color}m${link}\e[0m\n"
+            msg "如果无法正常显示或识别, 请使用 $(_green "$is_core url") 获取链接后在客户端中导入.\n"
             footer_msg
         }
     else
@@ -1555,10 +1553,13 @@ update() {
         is_update_repo=$is_core_repo
         ;;
     2 | sh)
-        is_update_name=sh
-        is_show_name="$is_core_name 脚本"
-        is_run_ver=$is_sh_ver
-        is_update_repo=$is_sh_repo
+        # local install only, sync the scripts from your git clone
+        msg "\n脚本使用本地安装方式, 不支持在线更新. 请在 git clone 的仓库目录执行:\n"
+        # plain msg (quoted), _green would expand ./*
+        msg "  ${green}git pull${none}"
+        msg "  ${green}cp -rf ./* $is_sh_dir/${none}\n"
+        msg "更新前可用 ${green}git fetch && git log -p HEAD..origin/main${none} 查看改动\n"
+        exit
         ;;
     3 | caddy)
         [[ ! $is_caddy ]] && err "不支持更新 Caddy."
@@ -1580,13 +1581,14 @@ update() {
     if [[ $is_new_ver ]]; then
         msg "\n使用自定义版本更新 $is_show_name: $(_green $is_new_ver)\n"
     else
-        get_latest_version $is_update_name
-        [[ $is_run_ver == $latest_ver ]] && {
-            msg "\n$is_show_name 当前已经是最新版本了.\n"
+        # no version given, use the pinned version (src/versions.sh)
+        [[ $is_update_name == 'core' ]] && is_new_ver=$is_core_pin_ver || is_new_ver=$is_caddy_pin_ver
+        [[ $is_run_ver == $is_new_ver ]] && {
+            msg "\n$is_show_name 当前已经是仓库固定的版本 ($is_new_ver).\n"
+            msg "如需升级, 请先在 src/versions.sh 中加入新版本及其指纹, 并同步脚本.\n"
             exit
         }
-        msg "\n发现 $is_show_name 新版本: $(_green $latest_ver)\n"
-        is_new_ver=$latest_ver
+        msg "\n更新 $is_show_name 到仓库固定的版本: $(_green $is_new_ver)\n"
     fi
     download $is_update_name $is_new_ver
     msg "更新成功, 当前 $is_show_name 版本: $(_green $is_new_ver)\n"
@@ -1598,7 +1600,6 @@ update() {
 is_main_menu() {
     msg "\n------------- $is_core_name script $is_sh_ver by $author -------------"
     msg "$is_core_name $is_core_ver: $is_core_status"
-    msg "群组(Chat): $(msg_ul https://t.me/tg233boy)"
     is_main_start=1
     ask mainmenu
     case $REPLY in

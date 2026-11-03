@@ -1,3 +1,40 @@
+# 本仓库说明 (fork)
+
+本仓库 fork 自 [233boy/sing-box](https://github.com/233boy/sing-box) (GPL-3.0), 做了以下修改:
+
+- 只支持本地安装: 先 `git clone` 本仓库, 再在仓库目录执行 `bash install.sh -l`; 不再从任何 Release 下载脚本
+- 固定版本 + 文件指纹校验 (严格模式): sing-box / Caddy / jq 只安装 `src/versions.sh` 中记录了指纹的版本, 指纹不符直接丢弃
+- 下载开启 HTTPS 证书校验 (去掉 `--no-check-certificate`)
+- `sb update sh` 改为提示使用 `git pull` 同步; `sb reinstall` 使用本地脚本
+- 二维码只在本地生成, 不再输出第三方二维码网页链接
+- 去掉推广/广告输出; 节点名称前缀改为 VPS 主机名
+- 修复手动更改 REALITY 密钥时校验无效的问题
+
+## 安装 (Ubuntu 22.04)
+
+```bash
+apt update && apt install -y git wget ca-certificates
+git clone https://github.com/blue-eric/sing-box.git
+cd sing-box && bash install.sh -l
+```
+
+可选: `apt install -y qrencode` (用于 `sb qr` 显示二维码)
+
+## 更新脚本
+
+```bash
+cd sing-box
+git fetch && git log -p HEAD..origin/main   # 先查看改动
+git pull
+cp -rf ./* /etc/sing-box/sh/
+```
+
+## 升级 sing-box / Caddy
+
+1. 在 `src/versions.sh` 中加入新版本的指纹, 并修改 `is_core_pin_ver` / `is_caddy_pin_ver`
+2. 按上面的步骤同步脚本到 VPS
+3. 执行 `sb update core` (或 `sb update caddy`)
+
 # 介绍
 
 最好用的 sing-box 一键安装脚本 & 管理脚本

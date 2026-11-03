@@ -52,10 +52,9 @@ load() {
     . $is_sh_dir/src/$1
 }
 
-# wget add --no-check-certificate
 _wget() {
     # [[ $proxy ]] && export https_proxy=$proxy
-    wget --no-check-certificate "$@"
+    wget "$@"
 }
 
 # apt-get, yum, zypper or apk
@@ -83,7 +82,7 @@ is_conf_dir=$is_core_dir/conf
 is_log_dir=/var/log/$is_core
 is_sh_bin=/usr/local/bin/$is_core
 is_sh_dir=$is_core_dir/sh
-is_sh_repo=$author/$is_core
+is_sh_repo=blue-eric/$is_core
 is_pkg="wget unzip tar qrencode bash"
 is_config_json=$is_core_dir/config.json
 is_caddy_bin=/usr/local/bin/caddy
@@ -100,6 +99,9 @@ elif [[ $is_openrc ]]; then
 fi
 is_http_port=80
 is_https_port=443
+
+# pinned versions & file hashes
+load versions.sh
 
 # core ver
 is_core_ver=$($is_core_bin version | head -n1 | cut -d " " -f3)
