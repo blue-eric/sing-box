@@ -70,10 +70,13 @@ is_conf_dir=$is_core_dir/conf
 is_log_dir=/var/log/$is_core
 is_sh_bin=/usr/local/bin/$is_core
 is_sh_dir=$is_core_dir/sh
-is_sh_repo=$author/$is_core
-is_pkg="wget tar bash"
+is_sh_repo=blue-eric/$is_core
+# openssl: hysteria2 cert fingerprint & REALITY sni test
+is_pkg="wget tar bash openssl"
 # Alpine: gcompat provides glibc compatibility for prebuilt binaries
 [[ $cmd =~ apk ]] && is_pkg="$is_pkg gcompat jq"
+# Ubuntu / Debian: ufw firewall, logrotate for /var/log/sing-box
+[[ $cmd =~ apt-get ]] && is_pkg="$is_pkg ufw logrotate"
 is_config_json=$is_core_dir/config.json
 tmp_var_lists=(
     tmpcore
@@ -101,10 +104,9 @@ load() {
     . $is_sh_dir/src/$1
 }
 
-# wget add --no-check-certificate
 _wget() {
     [[ $proxy ]] && export https_proxy=$proxy
-    wget --no-check-certificate $*
+    wget $*
 }
 
 # print a mesage
@@ -127,10 +129,10 @@ msg() {
 # show help msg
 show_help() {
     echo -e "Usage: $0 [-f xxx | -l | -p xxx | -v xxx | -h]"
-    echo -e "  -f, --core-file <path>          自定义 $is_core_name 文件路径, e.g., -f /root/$is_core-linux-amd64.tar.gz"
-    echo -e "  -l, --local-install             本地获取安装脚本, 使用当前目录"
+    echo -e "  -f, --core-file <path>          自定义 $is_core_name 文件路径 (指纹须与 src/versions.sh 记录一致), e.g., -f /root/$is_core-linux-amd64.tar.gz"
+    echo -e "  -l, --local-install             本地获取安装脚本, 使用当前目录 (默认且唯一的方式)"
     echo -e "  -p, --proxy <addr>              使用代理下载, e.g., -p http://127.0.0.1:2333"
-    echo -e "  -v, --core-version <ver>        自定义 $is_core_name 版本, e.g., -v v1.8.13"
+    echo -e "  -v, --core-version <ver>        自定义 $is_core_name 版本 (须在 src/versions.sh 中记录指纹), e.g., -v v1.14.4"
     echo -e "  -h, --help                      显示此帮助界面\n"
 
     exit 0
@@ -170,32 +172,33 @@ install_pkg() {
 download() {
     case $1 in
     core)
-        [[ ! $is_core_ver ]] && is_core_ver=$(_wget -qO- "https://api.github.com/repos/${is_core_repo}/releases/latest?v=$RANDOM" | grep tag_name | grep -E -o 'v([0-9.]+)')
-        [[ $is_core_ver ]] && link="https://github.com/${is_core_repo}/releases/download/${is_core_ver}/${is_core}-${is_core_ver:1}-linux-${is_arch}.tar.gz"
+        link="https://github.com/${is_core_repo}/releases/download/${is_core_ver}/${is_core}-${is_core_ver:1}-linux-${is_arch}.tar.gz"
         name=$is_core_name
         tmpfile=$tmpcore
         is_ok=$is_core_ok
-        ;;
-    sh)
-        link=https://github.com/${is_sh_repo}/releases/latest/download/code.tar.gz
-        name="$is_core_name 脚本"
-        tmpfile=$tmpsh
-        is_ok=$is_sh_ok
+        is_pin_name=$is_core
+        is_pin_ver=$is_core_ver
         ;;
     jq)
-        link=https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-$is_arch
+        link=https://github.com/jqlang/jq/releases/download/jq-${is_jq_pin_ver}/jq-linux-$is_arch
         name="jq"
         tmpfile=$tmpjq
         is_ok=$is_jq_ok
+        is_pin_name=jq
+        is_pin_ver=$is_jq_pin_ver
         ;;
     esac
 
-    [[ $link ]] && {
-        msg warn "下载 ${name} > ${link}"
-        if _wget -t 3 -q -c $link -O $tmpfile; then
+    msg warn "下载 ${name} > ${link}"
+    if _wget -t 3 -q -c $link -O $tmpfile; then
+        # 指纹不符的文件直接丢弃, 后续 check_status 会报告下载失败
+        if verify_file $is_pin_name $is_pin_ver $tmpfile; then
             mv -f $tmpfile $is_ok
+        else
+            msg err "${name} 文件指纹校验失败, 已丢弃: ${link}"
+            rm -f $tmpfile
         fi
-    }
+    fi
 }
 
 # get server ip
@@ -235,7 +238,6 @@ check_status() {
         [[ ! $is_fail ]] && {
             is_wget=1
             [[ ! $is_core_file ]] && download core &
-            [[ ! $local_install ]] && download sh &
             [[ $jq_not_found ]] && download jq &
             get_ip
             wait
@@ -321,6 +323,19 @@ main() {
     # check parameters
     [[ $# -gt 0 ]] && pass_args $@
 
+    # only local install: git clone the repo, then run in the repo dir
+    [[ ! -f ${PWD}/src/core.sh || ! -f ${PWD}/$is_core.sh || ! -f ${PWD}/src/versions.sh ]] && {
+        err "请先 git clone 仓库, 然后在仓库目录执行: ${green}bash install.sh -l${none}\n\n  git clone https://github.com/${is_sh_repo}.git\n  cd $is_core && bash install.sh -l"
+    }
+    local_install=1
+
+    # pinned versions & file hashes
+    . ${PWD}/src/versions.sh
+    [[ ! $is_core_ver ]] && is_core_ver=$is_core_pin_ver
+    ! is_pinned $is_core $is_core_ver && {
+        err "${is_core_name} $is_core_ver 未在 src/versions.sh 中记录指纹, 不允许安装.\n  当前固定版本: $is_core_pin_ver"
+    }
+
     # show welcome msg
     clear
     echo
@@ -337,6 +352,10 @@ main() {
     [[ $is_core_file ]] && {
         cp -f $is_core_file $is_core_ok
         msg warn "${yellow}${is_core_name} 文件使用 > $is_core_file${none}"
+        ! verify_file $is_core $is_core_ver $is_core_ok && {
+            msg err "${is_core_name} 文件指纹与 $is_core_ver 的记录不一致."
+            exit_and_del_tmpdir
+        }
     }
     # local dir install sh script
     [[ $local_install ]] && {
@@ -370,7 +389,6 @@ main() {
     # if wget installed. download core, sh, jq, get ip
     [[ $is_wget ]] && {
         [[ ! $is_core_file ]] && download core &
-        [[ ! $local_install ]] && download sh &
         [[ $jq_not_found ]] && download jq &
         get_ip
     }
@@ -434,8 +452,23 @@ main() {
     # chmod
     chmod +x $is_core_bin $is_sh_bin /usr/bin/jq ${is_sh_bin/$is_core/sb}
 
-    # create log dir
+    # create log dir (755: logrotate refuses world-writable dirs)
     mkdir -p $is_log_dir
+    chmod 755 $is_log_dir
+
+    # log rotate: keep 3 x 10M, copytruncate as sing-box keeps the file open
+    [[ -d /etc/logrotate.d ]] && cat >/etc/logrotate.d/$is_core <<EOF
+$is_log_dir/*.log {
+    size 10M
+    rotate 3
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
+EOF
+    # logrotate ignores config files writable by group/others
+    [[ -f /etc/logrotate.d/$is_core ]] && chmod 644 /etc/logrotate.d/$is_core
 
     # show a tips msg
     msg ok "生成配置文件..."

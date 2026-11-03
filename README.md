@@ -1,3 +1,46 @@
+# 本仓库说明 (fork)
+
+本仓库 fork 自 [233boy/sing-box](https://github.com/233boy/sing-box) (GPL-3.0), 做了以下修改:
+
+- 只支持本地安装: 先 `git clone` 本仓库, 再在仓库目录执行 `bash install.sh -l`; 不再从任何 Release 下载脚本
+- 固定版本 + 文件指纹校验 (严格模式): sing-box / Caddy / jq 只安装 `src/versions.sh` 中记录了指纹的版本, 指纹不符直接丢弃
+- 下载开启 HTTPS 证书校验 (去掉 `--no-check-certificate`)
+- `sb update sh` 改为提示使用 `git pull` 同步; `sb reinstall` 使用本地脚本
+- 二维码只在本地生成, 不再输出第三方二维码网页链接
+- 去掉推广/广告输出; 节点名称前缀改为 VPS 主机名
+- 修复手动更改 REALITY 密钥时校验无效的问题
+- REALITY 伪装目标: 候选列表见 `src/sni.sh` (美国站点), 添加时在 VPS 上实测 (TLS 1.3 + X25519 + h2 + 证书有效), 自动选延迟最低的合格站点; `sb sni-test [域名]` 可检测任意站点
+- ufw 防火墙 (Ubuntu / Debian): 先放行 SSH 端口再自动开启; 添加 / 删除 / 改端口时自动开关对应端口 (REALITY 为 TCP, Hysteria2 为 UDP); `sb fw` 重新同步全部规则
+- 日志默认 `warn` 级别, 并自动轮转 (10M x 3); 依赖加入 openssl
+- 卸载时只删除脚本添加的两行 alias; `sb reinstall` 先下载并校验 sing-box, 成功后才卸载
+
+## 安装 (Ubuntu 22.04)
+
+```bash
+apt update && apt install -y git wget ca-certificates
+git clone https://github.com/blue-eric/sing-box.git
+cd sing-box && bash install.sh -l
+```
+
+可选: `apt install -y qrencode` (用于 `sb qr` 显示二维码)
+
+注意: 云厂商控制台的 "安全组" 是另一层防火墙, 需要另外放行同样的端口 (REALITY: TCP, Hysteria2: UDP).
+
+## 更新脚本
+
+```bash
+cd sing-box
+git fetch && git log -p HEAD..origin/main   # 先查看改动
+git pull
+cp -rf ./* /etc/sing-box/sh/
+```
+
+## 升级 sing-box / Caddy
+
+1. 在 `src/versions.sh` 中加入新版本的指纹, 并修改 `is_core_pin_ver` / `is_caddy_pin_ver`
+2. 按上面的步骤同步脚本到 VPS
+3. 执行 `sb update core` (或 `sb update caddy`)
+
 # 介绍
 
 最好用的 sing-box 一键安装脚本 & 管理脚本

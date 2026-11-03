@@ -63,6 +63,8 @@ show_help() {
             # "   xapi [...]                                      同等于 $is_core api, 但 API 后端使用当前运行的 $is_core_name 服务\n"
             "其他:"
             "   bbr                                             启用 BBR, 如果支持"
+            "   fw, firewall                                    开启 ufw 并放行所有配置使用的端口"
+            "   sni-test [domain...]                            检测 REALITY 伪装目标是否合格 (TLS1.3/X25519/h2)"
             "   bin [...]                                       运行 $is_core_name 命令, 例如: $is_core bin help"
             "   [...] [...]                                     兼容绝大多数的 $is_core_name 命令, 例如: $is_core_name generate uuid"
             "   h, help                                         显示此帮助界面\n"
@@ -79,16 +81,10 @@ show_help() {
 }
 
 about() {
-    ####### 要点13脸吗只会改我链接的小人 #######
-    unset c n m s b
     msg
-    msg "网站: $(msg_ul https://233boy.com)"
-    msg "频道: $(msg_ul https://t.me/tg2333)"
-    msg "群组: $(msg_ul https://t.me/tg233boy)"
     msg "Github: $(msg_ul https://github.com/${is_sh_repo})"
-    msg "Twitter: $(msg_ul https://twitter.com/ai233boy)"
+    msg "原项目(upstream): $(msg_ul https://github.com/$author/$is_core) (GPL-3.0)"
     msg "$is_core_name site: $(msg_ul https://sing-box.sagernet.org/)"
     msg "$is_core_name core: $(msg_ul https://github.com/${is_core_repo})"
     msg
-    ####### 要点13脸吗只会改我链接的小人 #######
 }
