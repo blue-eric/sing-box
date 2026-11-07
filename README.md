@@ -9,7 +9,7 @@
 - 二维码只在本地生成, 不再输出第三方二维码网页链接
 - 去掉推广/广告输出; 节点名称前缀改为 VPS 主机名
 - 修复手动更改 REALITY 密钥时校验无效的问题
-- REALITY 伪装目标: 候选列表见 `src/sni.sh` (美国站点), 添加时在 VPS 上实测 (TLS 1.3 + X25519 + h2 + 证书有效), 自动选延迟最低的合格站点; `sb sni-test [域名]` 可检测任意站点
+- REALITY 伪装目标: 按 VPS 所在国家 (Cloudflare trace 的 `loc`) 选用候选列表 (美 / 日 / 韩 / 新 / 港 / 台 / 德 / 英 + 通用, 见 `src/sni.sh`), 添加时在 VPS 上实测 (TLS 1.3 + X25519 + h2 + 证书有效), 自动选延迟最低的合格站点; 未收录或识别不到的地区只用通用候选; `sb sni-test [域名]` 可检测任意站点
 - ufw 防火墙 (Ubuntu / Debian): 先放行 SSH 端口再自动开启; 添加 / 删除 / 改端口时自动开关对应端口 (REALITY 为 TCP, Hysteria2 为 UDP); `sb fw` 重新同步全部规则
 - 日志默认 `warn` 级别, 并自动轮转 (10M x 3); 依赖加入 openssl
 - 卸载时只删除脚本添加的两行 alias; `sb reinstall` 先下载并校验 sing-box, 成功后才卸载
