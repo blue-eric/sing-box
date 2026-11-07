@@ -16,6 +16,8 @@
 
 ## 安装 (Ubuntu 22.04)
 
+完整的分步部署指南 (防火墙、安全组、客户端导入、SSH 密钥登录、更新方法等) 见 **[DEPLOY.md](DEPLOY.md)**.
+
 ```bash
 apt update && apt install -y git wget ca-certificates
 git clone https://github.com/blue-eric/sing-box.git
